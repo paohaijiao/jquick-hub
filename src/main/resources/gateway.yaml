@@ -1,0 +1,33 @@
+
+gateway:
+  listen:
+    port: 18080                 # 监听端口
+    backlog: 1024              # TCP backlog(未决连接队列大小)
+    so_timeout: 5000           # 连接超时毫秒: 用于后端建连超时与协议探测等待上限
+    probe_timeout_ms: 5000     # 协议探测等待上限(可选配置): 首包不足时最多等待的毫秒数
+                               # 等待超时后, 若已收到数据则按"普通TCP流量"转发; 未收到任何数据则关闭连接
+nginx:
+  target:
+    host: 127.0.0.1            # 内网 Nginx IP
+    port: 52000                   # Nginx 端口
+other:
+  traffic:
+    target:
+      host: 127.0.0.1          # 指定转发 IP
+      port: 5236               # 指定转发端口
+    auth:
+      enable: true             # 鉴权开关，生产默认开启；false 时完全透传(行为与旧版一致)
+      token-prefix-len: 32     # 前置token固定长度(字节)，必须与下方每个token长度一致
+      timeout_ms: 5000         # 鉴权超时: 连接建立后未在限定时间内收到完整token则静默关闭
+      valid-tokens:            # 合法token列表(每个必须恰好 token-prefix-len 字节)
+        - "0123456789abcdef0123456789abcdef"   # 示例32位token，生产环境务必更换为随机生成值
+
+netty:
+  boss:
+    threads: 1                 # boss 线程数(负责接受新连接)
+  worker:
+    threads: 0                 # worker 线程数(处理 IO), 0 表示自动 = CPU核数*2
+  buffer:
+    leak:
+      detection: SIMPLE        # 缓冲区泄漏检测级别: SIMPLE | ADVANCED | PARANOID | DISABLED
+                               # 生产环境建议 SIMPLE; 调试内存泄漏可用 PARANOID(开销大)
