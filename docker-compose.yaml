@@ -1,0 +1,49 @@
+# ============================================================================
+#  docker-compose.yaml —— jquick-hub 单端口协议嗅探 TCP 网关
+#  用法:
+#     docker compose up -d --build        # 构建并启动
+#     docker compose logs -f jquick-hub   # 查看日志
+#     docker compose down                 # 停止
+# ============================================================================
+services:
+  jquick-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jquick-hub:1.0.0
+    container_name: jquick-hub
+    restart: unless-stopped
+
+    # ---- 宿主机 <-> 容器端口映射 ----
+    # 格式: "<宿主机端口>:<容器端口>"
+    #   · 容器端口必须与 JQUICK_LISTEN_PORT 一致（容器内 JVM 实际监听的端口）
+    #   · 宿主机端口可自由调整，例如 "8080:18080" 表示宿主机 8080 -> 容器 18080
+    #   · 网关是"单端口嗅探分流"，一条映射即可同时暴露 HTTP/HTTPS 与普通 TCP 流量
+    #   · 需要同时暴露多个端口时，追加多行即可（如 "18081:18081"）
+    ports:
+      - "18080:18080"
+
+    # ---- 运行时配置（环境变量，优先级高于 YAML 中的同名配置）----
+    # 前缀 JQUICK_，完整清单见 JQuickConfigLoader.applyEnvOverrides
+    environment:
+      # 容器内监听端口（必须与 ports 的"容器端口"一致）
+      JQUICK_LISTEN_PORT: "18080"
+      # Nginx 与普通TCP目标位于宿主机时，用 host.docker.internal 访问宿主机
+      # （Windows/macOS Docker Desktop 开箱即用；Linux 需启用下方 extra_hosts）
+      JQUICK_NGINX_HOST: "host.docker.internal"
+      JQUICK_NGINX_PORT: "52000"
+      JQUICK_OTHER_HOST: "host.docker.internal"
+      JQUICK_OTHER_PORT: "5236"
+      # 普通TCP流量前置 token 鉴权（生产环境务必开启并更换随机 token）
+      JQUICK_AUTH_ENABLE: "true"
+      JQUICK_AUTH_TOKEN_PREFIX_LEN: "32"
+      # 逗号分隔的合法 token 列表（生产环境请替换为随机生成值）
+      JQUICK_AUTH_TOKENS: "0123456789abcdef0123456789abcdef"
+
+    # Linux 上访问宿主机需声明 host-gateway（Windows/macOS 无需此项）:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+    # 可选: 挂载自定义 yaml 配置覆盖镜像内置默认值（环境变量仍可继续覆盖其中单项）
+    # volumes:
+    #   - ./gateway.yaml:/app/gateway.yaml:ro

@@ -1,0 +1,44 @@
+# ============================================================================
+#  jquick-hub 镜像内置默认配置（占位，不包含任何硬编码 IP/端口）
+#
+#  - 所有运行时参数均可通过 JQUICK_* 环境变量覆盖，优先级: 环境变量 > YAML > 代码默认值
+#  - 也可挂载自定义 yaml 覆盖本文件（docker run -v 或 compose volumes），
+#    或设置 GATEWAY_CONFIG 指向其他配置文件路径
+#  - 本文件全部项默认取代码默认值:
+#      监听 0.0.0.0:8080，Nginx 127.0.0.1:80，其他流量目标 127.0.0.1:9000，鉴权关闭
+#  - 镜像不固化任何端口（无 EXPOSE），端口映射完全由 docker run -p 在运行时决定
+# ============================================================================
+gateway:
+  listen:
+    # host: 0.0.0.0            # 环境变量: JQUICK_LISTEN_HOST
+    # port: 8080               # 环境变量: JQUICK_LISTEN_PORT
+    # backlog: 1024            # 环境变量: JQUICK_LISTEN_BACKLOG
+    # so_timeout: 5000         # 环境变量: JQUICK_LISTEN_SO_TIMEOUT
+    # probe_timeout_ms: 5000   # 环境变量: JQUICK_LISTEN_PROBE_TIMEOUT
+
+nginx:
+  target:
+    # host: 127.0.0.1          # 环境变量: JQUICK_NGINX_HOST
+    # port: 80                 # 环境变量: JQUICK_NGINX_PORT
+
+other:
+  traffic:
+    target:
+      # host: 127.0.0.1        # 环境变量: JQUICK_OTHER_HOST
+      # port: 9000             # 环境变量: JQUICK_OTHER_PORT
+    # 注意: 整个 auth 段保持注释 = 鉴权默认关闭（与旧版行为一致，向后兼容）；
+    # 生产环境通过环境变量开启:
+    #   auth:
+    #     enable: true                # JQUICK_AUTH_ENABLE
+    #     token-prefix-len: 32        # JQUICK_AUTH_TOKEN_PREFIX_LEN
+    #     timeout_ms: 5000            # JQUICK_AUTH_TIMEOUT_MS
+    #     valid-tokens: []            # JQUICK_AUTH_TOKENS（逗号分隔，如 "tok1,tok2"）
+
+netty:
+  boss:
+    threads: 1                # 环境变量: JQUICK_NETTY_BOSS_THREADS
+  worker:
+    threads: 0                # 环境变量: JQUICK_NETTY_WORKER_THREADS（0 = 自动 = CPU核数*2）
+  buffer:
+    leak:
+      detection: SIMPLE       # 环境变量: JQUICK_LEAK_DETECTION

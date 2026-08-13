@@ -27,6 +27,9 @@ public final class JQuickConfigLoader {
 
     private static final int DEFAULT_LISTEN_PORT = 8080;
 
+    /** 默认监听网卡（0.0.0.0 = 监听所有网卡） */
+    private static final String DEFAULT_LISTEN_HOST = "0.0.0.0";
+
     private static final int DEFAULT_BACKLOG = 1024;
 
     private static final int DEFAULT_SO_TIMEOUT = 5000;
@@ -79,6 +82,9 @@ public final class JQuickConfigLoader {
             root = loadFromClasspath();
         }
         JQuickGatewayConfig cfg = buildConfig(root);
+        // 环境变量覆盖(优先级: 环境变量 > YAML > 代码默认值), 支撑 Docker 容器化按需传参
+        applyEnvOverrides(cfg);
+        validate(cfg);
         log.info("配置加载完成: {}", cfg);
         return cfg;
     }
@@ -137,6 +143,7 @@ public final class JQuickConfigLoader {
         Map<String, Object> gateway = nestedMap(root, "gateway");
         Map<String, Object> listen = nestedMap(gateway, "listen");
         cfg.setListenPort(intVal(listen, "port", DEFAULT_LISTEN_PORT));
+        cfg.setListenHost(strVal(listen, "host", DEFAULT_LISTEN_HOST));
         cfg.setListenBacklog(intVal(listen, "backlog", DEFAULT_BACKLOG));
         cfg.setListenSoTimeout(intVal(listen, "so_timeout", DEFAULT_SO_TIMEOUT));
         cfg.setProbeTimeoutMs(intVal(listen, "probe_timeout_ms", cfg.getListenSoTimeout() > 0 ? cfg.getListenSoTimeout() : DEFAULT_PROBE_TIMEOUT));
@@ -172,7 +179,6 @@ public final class JQuickConfigLoader {
         cfg.setWorkerThreads(intVal(worker, "threads", DEFAULT_WORKER_THREADS));
         cfg.setLeakDetection(strVal(leak, "detection", DEFAULT_LEAK_DETECTION));
 
-        validate(cfg);
         return cfg;
     }
 
@@ -281,6 +287,78 @@ public final class JQuickConfigLoader {
             return out;
         }
         return new ArrayList<>();
+    }
+
+    // ==================== 环境变量覆盖（Docker 容器化支持） ====================
+    // 所有运行时参数均可通过环境变量覆盖 YAML 配置，优先级: 环境变量 > YAML > 代码默认值。
+    // 统一前缀 JQUICK_，例如: JQUICK_LISTEN_HOST=0.0.0.0、JQUICK_LISTEN_PORT=18080。
+    private static final String ENV_PREFIX = "JQUICK_";
+
+    private static void applyEnvOverrides(JQuickGatewayConfig cfg) {
+        cfg.setListenHost(envStr("LISTEN_HOST", cfg.getListenHost()));
+        cfg.setListenPort(envInt("LISTEN_PORT", cfg.getListenPort()));
+        cfg.setListenBacklog(envInt("LISTEN_BACKLOG", cfg.getListenBacklog()));
+        cfg.setListenSoTimeout(envInt("LISTEN_SO_TIMEOUT", cfg.getListenSoTimeout()));
+        cfg.setProbeTimeoutMs(envInt("LISTEN_PROBE_TIMEOUT", cfg.getProbeTimeoutMs()));
+        cfg.setNginxHost(envStr("NGINX_HOST", cfg.getNginxHost()));
+        cfg.setNginxPort(envInt("NGINX_PORT", cfg.getNginxPort()));
+        cfg.setOtherHost(envStr("OTHER_HOST", cfg.getOtherHost()));
+        cfg.setOtherPort(envInt("OTHER_PORT", cfg.getOtherPort()));
+        cfg.setOtherAuthEnabled(envBool("AUTH_ENABLE", cfg.isOtherAuthEnabled()));
+        cfg.setOtherAuthTokenPrefixLen(envInt("AUTH_TOKEN_PREFIX_LEN", cfg.getOtherAuthTokenPrefixLen()));
+        cfg.setOtherAuthTimeoutMs(envInt("AUTH_TIMEOUT_MS", cfg.getOtherAuthTimeoutMs()));
+        List<String> tokens = envTokens("AUTH_TOKENS");
+        if (tokens != null) {
+            cfg.setOtherAuthValidTokens(tokens);
+        }
+        cfg.setBossThreads(envInt("NETTY_BOSS_THREADS", cfg.getBossThreads()));
+        cfg.setWorkerThreads(envInt("NETTY_WORKER_THREADS", cfg.getWorkerThreads()));
+        cfg.setLeakDetection(envStr("LEAK_DETECTION", cfg.getLeakDetection()));
+    }
+
+    private static String env(String suffix) {
+        return System.getenv(ENV_PREFIX + suffix);
+    }
+
+    private static String envStr(String suffix, String def) {
+        String v = env(suffix);
+        return (v == null || v.trim().isEmpty()) ? def : v.trim();
+    }
+
+    private static int envInt(String suffix, int def) {
+        String v = env(suffix);
+        if (v == null || v.trim().isEmpty()) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            log.warn("环境变量 {}{} 值非法: '{}'，回退使用配置值 {}", ENV_PREFIX, suffix, v, def);
+            return def;
+        }
+    }
+
+    private static boolean envBool(String suffix, boolean def) {
+        String v = env(suffix);
+        if (v == null || v.trim().isEmpty()) {
+            return def;
+        }
+        return Boolean.parseBoolean(v.trim());
+    }
+
+    /** 逗号分隔的合法 token 列表；未设置时返回 null 表示不覆盖 YAML */
+    private static List<String> envTokens(String suffix) {
+        String v = env(suffix);
+        if (v == null || v.trim().isEmpty()) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        for (String s : v.split(",")) {
+            if (!s.trim().isEmpty()) {
+                out.add(s.trim());
+            }
+        }
+        return out;
     }
 
     /** token掩码输出：仅前4+后2，禁止日志打印明文token */

@@ -1,7 +1,8 @@
 
 gateway:
   listen:
-    port: 18080                 # 监听端口
+    host: 0.0.0.0                # 监听网卡 IP(默认所有网卡), 可用环境变量 JQUICK_LISTEN_HOST 覆盖
+    port: 18080                 # 监听端口, 可用环境变量 JQUICK_LISTEN_PORT 覆盖
     backlog: 1024              # TCP backlog(未决连接队列大小)
     so_timeout: 5000           # 连接超时毫秒: 用于后端建连超时与协议探测等待上限
     probe_timeout_ms: 5000     # 协议探测等待上限(可选配置): 首包不足时最多等待的毫秒数

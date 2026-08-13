@@ -107,11 +107,10 @@ public final class JQuickGatewayServer {
                         }
                     });
 
-            ChannelFuture future = server.bind(config.getListenPort()).sync();
+            ChannelFuture future = server.bind(config.getListenHost(), config.getListenPort()).sync();
             log.info("===============================================================");
             log.info("  TCP 流量网关启动成功");
-            log.info("  公网监听: 0.0.0.0:{} (backlog={}, so_timeout={}ms)",
-                    config.getListenPort(), config.getListenBacklog(), config.getListenSoTimeout());
+            log.info("  公网监听: {}:{} (backlog={}, so_timeout={}ms)", config.getListenHost(), config.getListenPort(), config.getListenBacklog(), config.getListenSoTimeout());
             log.info("  HTTP/HTTPS -> Nginx : {}:{}", config.getNginxHost(), config.getNginxPort());
             log.info("  OTHER      -> 目标 : {}:{}", config.getOtherHost(), config.getOtherPort());
             log.info("  OTHER鉴权   : {} (前置token{}字节, 超时{}ms, 合法token数{})",

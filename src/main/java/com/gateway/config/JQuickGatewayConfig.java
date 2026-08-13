@@ -12,6 +12,10 @@ public class JQuickGatewayConfig {
      */
     private int listenPort;
     /**
+     * 监听网卡 IP（默认 0.0.0.0 = 监听所有网卡；可用环境变量 JQUICK_LISTEN_HOST 覆盖）
+     */
+    private String listenHost;
+    /**
      * TCP backlog
      */
     private int listenBacklog;
