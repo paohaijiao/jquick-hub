@@ -86,6 +86,113 @@ Example:
 java -jar tcp-gateway.jar gateway.yaml
 ```
 
+## Docker Deployment
+
+The project ships a ready-to-use [Dockerfile](Dockerfile) and [docker-compose.yaml](docker-compose.yaml). The containerized gateway is **configuration-driven, not image-driven**:
+
+- **No `EXPOSE`** — the image does not fix any port. All port mapping happens at runtime with `docker run -p <host-port>:<container-port>` (or Compose `ports`).
+- **No hardcoded IP/port** — the bundled [docker/gateway.yaml](docker/gateway.yaml) is only a placeholder with no IP/port values. Every runtime setting can be passed via `JQUICK_*` environment variables, which override the YAML. Precedence: **env var > YAML > code default**.
+- **JRE base image** — multi-stage build: a Maven+JDK build stage produces the fat JAR, and an Eclipse Temurin **JRE** image is used as the runtime (smaller, no compiler).
+
+### Environment variable overrides
+
+| Env var | Overrides | Default |
+|---|---|---|
+| `JQUICK_LISTEN_HOST` | `gateway.listen.host` | `0.0.0.0` |
+| `JQUICK_LISTEN_PORT` | `gateway.listen.port` | `8080` |
+| `JQUICK_LISTEN_BACKLOG` | `gateway.listen.backlog` | `1024` |
+| `JQUICK_LISTEN_SO_TIMEOUT` | `gateway.listen.so_timeout` | `5000` |
+| `JQUICK_LISTEN_PROBE_TIMEOUT` | `gateway.listen.probe_timeout_ms` | `so_timeout` |
+| `JQUICK_NGINX_HOST` / `JQUICK_NGINX_PORT` | `nginx.target.host` / `port` | `127.0.0.1` / `80` |
+| `JQUICK_OTHER_HOST` / `JQUICK_OTHER_PORT` | `other.traffic.target.host` / `port` | `127.0.0.1` / `9000` |
+| `JQUICK_AUTH_ENABLE` | `other.traffic.auth.enable` | `true` (only if an `auth` section exists) |
+| `JQUICK_AUTH_TOKEN_PREFIX_LEN` | `other.traffic.auth.token-prefix-len` | `32` |
+| `JQUICK_AUTH_TIMEOUT_MS` | `other.traffic.auth.timeout_ms` | `5000` |
+| `JQUICK_AUTH_TOKENS` | `other.traffic.auth.valid-tokens` | — (comma-separated list) |
+| `JQUICK_NETTY_BOSS_THREADS` / `JQUICK_NETTY_WORKER_THREADS` | `netty.boss.threads` / `netty.worker.threads` | `1` / `0` |
+| `JQUICK_LEAK_DETECTION` | `netty.buffer.leak.detection` | `SIMPLE` |
+
+### Build the image
+
+```bash
+docker build -t jquick-hub:1.0.0 .
+```
+
+### Run with `docker run`
+
+**Reaching host services from the container: use `host.docker.internal`.** Inside a container, `127.0.0.1` refers to the container itself — so backend targets that run on the host machine (Nginx, databases, ...) must be addressed via `host.docker.internal`:
+
+```bash
+docker run -d --name jquick-hub --restart unless-stopped \
+  -p 18080:18080 \
+  -e JQUICK_LISTEN_PORT=18080 \
+  -e JQUICK_NGINX_HOST=host.docker.internal -e JQUICK_NGINX_PORT=52000 \
+  -e JQUICK_OTHER_HOST=host.docker.internal -e JQUICK_OTHER_PORT=5236 \
+  -e JQUICK_AUTH_ENABLE=true -e JQUICK_AUTH_TOKEN_PREFIX_LEN=32 \
+  -e JQUICK_AUTH_TOKENS=0123456789abcdef0123456789abcdef \
+  jquick-hub:1.0.0
+```
+
+> `host.docker.internal` works out of the box on Windows/macOS Docker Desktop. On **Linux**, add `--add-host=host.docker.internal:host-gateway`.
+
+**Alternative: mount your own YAML config** (env vars still override individual settings):
+
+```bash
+docker run -d --name jquick-hub \
+  -p 18080:18080 \
+  -v /path/to/gateway.yaml:/app/gateway.yaml:ro \
+  jquick-hub:1.0.0
+```
+
+### Port mapping
+
+Format: `-p <host-port>:<container-port>`.
+
+- The **container port must equal `JQUICK_LISTEN_PORT`** — it is the port the JVM binds inside the container.
+- The **host port is free to choose** — e.g. `-p 8080:18080` exposes the gateway on host port 8080; clients then connect to `<host>:8080`.
+- Because the gateway routes multiple protocols through a **single** listening port, **one mapping is enough** to expose HTTP/HTTPS and plain TCP traffic at the same time. Add more `-p` lines only if you run multiple listener ports.
+- There is no `EXPOSE` in the image on purpose: `EXPOSE` is only documentation and never actually publishes a port; the mapping is always decided at runtime.
+
+### Run with docker compose
+
+```yaml
+services:
+  jquick-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jquick-hub:1.0.0
+    container_name: jquick-hub
+    restart: unless-stopped
+    ports:
+      - "18080:18080"
+    environment:
+      JQUICK_LISTEN_PORT: "18080"
+      JQUICK_NGINX_HOST: "host.docker.internal"
+      JQUICK_NGINX_PORT: "52000"
+      JQUICK_OTHER_HOST: "host.docker.internal"
+      JQUICK_OTHER_PORT: "5236"
+      JQUICK_AUTH_ENABLE: "true"
+      JQUICK_AUTH_TOKEN_PREFIX_LEN: "32"
+      JQUICK_AUTH_TOKENS: "0123456789abcdef0123456789abcdef"
+    # Linux only: reach the host via host.docker.internal
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+```
+
+```bash
+docker compose up -d --build
+docker compose logs -f jquick-hub
+```
+
+### Verify
+
+```bash
+docker logs -f jquick-hub
+```
+
+A healthy startup prints the effective config (listen port, Nginx/other targets, auth settings). A successful relay logs `后端连接成功 <host>:<port>，开始透传` (backend connected, relaying). If a connection drops right after connecting, check the logs: `Connection refused` usually means the backend address is wrong or not reachable from inside the container — remember to use `host.docker.internal` for services running on the host.
+
 ## Configuration
 
 All settings live in a single YAML file (`gateway.yaml`). An annotated example:
@@ -93,6 +200,7 @@ All settings live in a single YAML file (`gateway.yaml`). An annotated example:
 ```yaml
 gateway:
   listen:
+    host: 0.0.0.0               # bind address (default: all interfaces)
     port: 18080                 # public listening port
     backlog: 1024              # TCP backlog (pending connection queue size)
     so_timeout: 5000           # connection timeout in ms (backend connect + probe wait upper bound)
@@ -127,6 +235,7 @@ netty:
 
 | Key | Default | Notes |
 |---|---|---|
+| `gateway.listen.host` | `0.0.0.0` | bind address; env override `JQUICK_LISTEN_HOST` |
 | `gateway.listen.port` | `8080` | |
 | `gateway.listen.backlog` | `1024` | must be a positive integer |
 | `gateway.listen.so_timeout` | `5000` | ms |
@@ -193,7 +302,7 @@ Command-line options (`-ports`, `-host`, `-port`, `-token`) override the propert
 src/main/java/com/gateway/
 ├── JQuickGatewayServer.java          # main entry: bootstrap, thread groups, shutdown hook
 ├── config/
-│   ├── JQuickConfigLoader.java       # YAML loading, validation, defaults
+│   ├── JQuickConfigLoader.java       # YAML loading, env overrides, validation, defaults
 │   └── JQuickGatewayConfig.java      # configuration model
 └── handler/
     ├── JQuickProtocolDetectHandler.java   # first-packet protocol sniffing & routing
@@ -204,6 +313,9 @@ client/
 ├── client.properties                 # client config
 └── start-client.bat                  # Windows launcher
 src/main/resources/gateway.yaml       # default server config
+Dockerfile                            # multi-stage build: Maven+JDK → JRE runtime (no EXPOSE)
+docker-compose.yaml                   # compose deployment example (host.docker.internal)
+docker/gateway.yaml                   # image default config placeholder (no hardcoded IP/port)
 pom.xml                               # Maven build (fat jar: tcp-gateway.jar)
 ```
 
