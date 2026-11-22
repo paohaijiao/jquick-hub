@@ -29,6 +29,10 @@ Because the gateway only sniffs and relays raw bytes, it supports arbitrary long
 
 ## Architecture
 
+![jquick-hub data flow](docs/assets/netty-gateway-flow.gif)
+
+> TCP packets flow at constant speed through one closed loop: requests travel in on the top lane, responses relay back on the bottom lane, passing through the gateway's handler pipeline (`ProtocolDetectHandler → AuthPrefixHandler → TcpRelayHandler`).
+
 ```
                     Public network                        Internal network
 +----------------+   single port   +------------------+   pass-through   +----------------+
